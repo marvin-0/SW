@@ -1,0 +1,552 @@
+#include <windows.h> //--- 윈도우 헤더 파일
+#include <stdlib.h>
+#include <tchar.h>
+#include <random>
+#include <math.h>
+
+#define PI 3.141592
+#define RAD PI/180
+
+std::random_device rd;
+std::uniform_int_distribution <int> uid;
+std::mt19937 gen;
+
+HINSTANCE g_hInst;
+LPCTSTR lpszClass = L"Window Class Name";
+LPCTSTR lpszWindowName = L"Window Programming Lab";
+LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
+
+typedef struct s_Enemy {
+	int x1, y1, x2, y2;
+	int life;
+	int speed;
+}Enemy;
+
+typedef struct s_Board {
+	int x1, y1, x2, y2;
+	int color;
+	int danger;
+}Board;
+
+typedef struct s_character {
+	int x1, y1, x2, y2;
+	int life;
+}Character;
+
+typedef struct s_Bullet {
+	int x, y;
+	int option;
+	int direction;
+}Bullet;
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpszCmdParam, int nCmdShow)
+{
+	HWND hWnd;
+	MSG Message;
+	WNDCLASSEX WndClass;
+	g_hInst = hInstance;
+	WndClass.cbSize = sizeof(WndClass);
+	WndClass.style = CS_HREDRAW | CS_VREDRAW;
+	WndClass.lpfnWndProc = (WNDPROC)WndProc;
+	WndClass.cbClsExtra = 0;
+	WndClass.cbWndExtra = 0;
+	WndClass.hInstance = hInstance;
+	WndClass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+	WndClass.hCursor = LoadCursor(NULL, IDC_ARROW);
+	WndClass.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+	WndClass.lpszMenuName = NULL;
+	WndClass.lpszClassName = lpszClass;
+	WndClass.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+	RegisterClassEx(&WndClass);
+	hWnd = CreateWindow(lpszClass, lpszWindowName, WS_OVERLAPPEDWINDOW, 0, 0, 1200, 1000, NULL, (HMENU)NULL, hInstance, NULL);
+	ShowWindow(hWnd, nCmdShow);
+	UpdateWindow(hWnd);
+	while (GetMessage(&Message, 0, 0, 0)) {
+		TranslateMessage(&Message);
+		DispatchMessage(&Message);
+	}
+	return Message.wParam;
+}
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	PAINTSTRUCT ps;
+	HDC hDC;
+	RECT rectview;
+	HBRUSH hBrush, oldBrush;
+	static HDC memdc;
+	static HBITMAP hBitmap;
+	static Character box;
+	static Board board[15][15];
+	static Bullet Ammo[6];
+	static Enemy enemy[30] = { 0, };
+	static int up, down, left, right;
+	static int ammo_count = 6;
+	static int radian[6] = { 0, };
+	static int reload = 0;
+	static int create_enemy = 0;
+	//--- 메시지 처리하기
+	switch (uMsg) {
+	case WM_CREATE:
+		SetTimer(hWnd, 1, 20, NULL);	 // 주인공 이동
+		SetTimer(hWnd, 2, 10, NULL);	 // 총알
+		// 타이머 3은 장전할 때 사용
+		SetTimer(hWnd, 4, 1000, NULL);	// 적 생성
+		SetTimer(hWnd, 5, 50, NULL);	// 적 이동
+		hDC = GetDC(hWnd);
+		GetClientRect(hWnd, &rectview);
+		memdc = CreateCompatibleDC(hDC);
+		hBitmap = CreateCompatibleBitmap(hDC, rectview.right, rectview.bottom);
+		SelectObject(memdc, (HBITMAP)hBitmap);
+		for (int i = 0; i < 15; ++i) {
+			for (int j = 0; j < 15; ++j) {
+				board[i][j].x1 = 100 + j * 50;
+				board[i][j].x2 = 150 + j * 50;
+				board[i][j].y1 = 200 + i * 50;
+				board[i][j].y2 = 250 + i * 50;
+
+			
+				if (i > 3 && j > 3 && i < 11 && j < 11) {
+					board[i][j].color = 1;
+				}
+				else
+					board[i][j].color = uid(gen) % 2;
+			}
+		}
+		box.x1 = 405;
+		box.y1 = 405;
+		box.x2 = 445;
+		box.y2 = 445;
+		box.life = 3;
+
+		for (int i = 0; i < 6; ++i) {
+			radian[i] += 60 * i;
+			Ammo[i].x = ((box.x1 + box.x2) / 2) + 20 * cos(RAD * radian[i]);
+			Ammo[i].y = ((box.y1 + box.y2) / 2) + 20 * sin(RAD * radian[i]);
+			Ammo[i].option = 1;
+			Ammo[i].direction = 99;
+		}
+		Ammo[5].option = 2;
+		ReleaseDC(hWnd, hDC);
+		break;
+
+	case WM_CHAR:
+		if (wParam == 'w' && reload == 0) {
+			ammo_count--;
+			if (ammo_count < 0){
+				ammo_count = 0;
+			}
+			else {
+				Ammo[ammo_count].direction = 1;
+				Ammo[ammo_count].x = (box.x1 + box.x2) / 2;
+				Ammo[ammo_count].y = box.y1;
+			}
+		}
+
+		if (wParam == 'a' && reload == 0) {
+			ammo_count--;
+			if (ammo_count < 0) {
+				ammo_count = 0;
+			}
+			else {
+				Ammo[ammo_count].direction = 2;
+				Ammo[ammo_count].y = (box.y1 + box.y2) / 2;
+				Ammo[ammo_count].x = box.x1;
+			}
+		}
+
+		if (wParam == 's' && reload == 0) {
+			ammo_count--;
+			if (ammo_count < 0) {
+				ammo_count = 0;
+			}
+			else {
+				Ammo[ammo_count].direction = 3;
+				Ammo[ammo_count].x = (box.x1 + box.x2) / 2;
+				Ammo[ammo_count].y = box.y2;
+			}
+		}
+
+		if (wParam == 'd' && reload == 0) {
+			ammo_count--;
+			if (ammo_count < 0) {
+				ammo_count = 0;
+			}
+			else {
+				Ammo[ammo_count].direction = 4;
+				Ammo[ammo_count].y = (box.y1 + box.y2) / 2;
+				Ammo[ammo_count].x = box.x2;
+			}
+		}
+
+		if (wParam == 'r' && reload == 0) {
+			if (ammo_count == 0) {
+				SetTimer(hWnd, 3, 200, NULL);
+			}
+		}
+		break;
+	case WM_TIMER:
+		switch (wParam) {
+		case 1:
+			if (up) {
+				if (box.y1 > board[0][0].y1) {
+					box.y1 -= 5;
+					box.y2 -= 5;
+				}
+			}
+
+			if (down) {
+				if (box.y2 < board[14][0].y2) {
+					box.y1 += 5;
+					box.y2 += 5;
+				}
+			}
+
+			if (left) {
+				if (box.x1 > board[0][0].x1) {
+					box.x1 -= 5;
+					box.x2 -= 5;
+				}
+			}
+
+			if (right) {
+				if (box.x2 < board[0][14].x2) {
+					box.x1 += 5;
+					box.x2 += 5;
+				}
+			}
+
+			for (int i = 0; i < 15; ++i) {
+				for (int j = 0; j < 15; ++j) {
+					if (up) {
+						if (box.y1 < board[i][j].y2 && box.y1 > board[i][j].y1 && box.x1 > board[i][j].x1 && box.x1 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.y1 += 5;
+								box.y2 += 5;
+							}
+						}
+						if (box.y1 < board[i][j].y2 && box.y1 > board[i][j].y1 && box.x2 > board[i][j].x1 && box.x2 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.y1 += 5;
+								box.y2 += 5;
+							}
+						}
+					}
+
+					if (down) {
+						if (box.y2 < board[i][j].y2 && box.y2 > board[i][j].y1 && box.x1 > board[i][j].x1 && box.x1 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.y1 -= 5;
+								box.y2 -= 5;
+							}
+						}
+						if (box.y2 < board[i][j].y2 && box.y2 > board[i][j].y1 && box.x2 > board[i][j].x1 && box.x2 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.y1 -= 5;
+								box.y2 -= 5;
+							}
+						}
+					}
+
+					if (left) {
+						if (box.y1 > board[i][j].y1 && box.y1 < board[i][j].y2 && box.x1 > board[i][j].x1 && box.x1 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.x1 += 5;
+								box.x2 += 5;
+							}
+						}
+						if (box.y2 > board[i][j].y1 && box.y2 < board[i][j].y2 && box.x1 > board[i][j].x1 && box.x1 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.x1 += 5;
+								box.x2 += 5;
+							}
+						}
+					}
+
+					if (right) {
+						if (box.y1 > board[i][j].y1 && box.y1 < board[i][j].y2 && box.x2 > board[i][j].x1 && box.x2 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.x1 -= 5;
+								box.x2 -= 5;
+							}
+						}
+						if (box.y2 > board[i][j].y1 && box.y2 < board[i][j].y2 && box.x2 > board[i][j].x1 && box.x2 < board[i][j].x2) {
+							if (board[i][j].color == 0) {
+								box.x1 -= 5;
+								box.x2 -= 5;
+							}
+						}
+					}
+				}
+			}
+
+			for (int i = 0; i < 6; ++i) {
+				if (Ammo[i].direction > 10) {
+					Ammo[i].x = ((box.x1 + box.x2) / 2) + 13 * cos(RAD * radian[i]) - 4;
+					Ammo[i].y = ((box.y1 + box.y2) / 2) + 13 * sin(RAD * radian[i]) - 4;
+				}
+			}
+			break;
+
+		case 2:
+			for (int i = 0; i < 6; ++i) {
+				radian[i] += 3;
+				if (radian[i] == 360) {
+					radian[i] = 0;
+				}
+
+				if (Ammo[i].direction == 1) {
+					Ammo[i].y -= 15;
+				}
+				else if (Ammo[i].direction == 2) {
+					Ammo[i].x -= 15;
+				}
+				else if (Ammo[i].direction == 3) {
+					Ammo[i].y += 15;
+				}
+				else if (Ammo[i].direction == 4) {
+					Ammo[i].x += 15;
+				}
+
+				for (int k = 0; k < 15; ++k) {
+					for (int j = 0; j < 15; ++j) {
+						if (Ammo[i].x > board[k][j].x1 && Ammo[i].x < board[k][j].x2 && Ammo[i].y > board[k][j].y1 && Ammo[i].y < board[k][j].y2 && Ammo[i].direction < 10) {
+							board[k][j].color = 1;
+						}
+						if (Ammo[i].x + 10 > board[k][j].x1 && Ammo[i].x + 10 < board[k][j].x2 && Ammo[i].y + 10 > board[k][j].y1 && Ammo[i].y + 10 < board[k][j].y2 && Ammo[i].direction < 10) {
+							board[k][j].color = 1;
+						}
+					}
+				}
+
+				for (int j = 0; j < 30; ++j) {
+					if (Ammo[i].x > enemy[j].x1 && Ammo[i].x < enemy[j].x2 && Ammo[i].y > enemy[j].y1 && Ammo[i].y < enemy[j].y2 && Ammo[i].direction < 10) {
+						enemy[j].life = 0;
+					}
+					if (Ammo[i].x + 10 > enemy[j].x1 && Ammo[i].x + 10 < enemy[j].x2 && Ammo[i].y + 10 > enemy[j].y1 && Ammo[i].y + 10 < enemy[j].y2 && Ammo[i].direction < 10) {
+						enemy[j].life = 0;
+					}
+				}
+			}
+			break;
+
+		case 3:
+
+			Ammo[reload].option = 1;
+			Ammo[reload].direction = 99;
+
+			reload++;
+			ammo_count = reload;
+			if (reload > 5) {
+				reload = 0;
+				KillTimer(hWnd, 3);
+			}
+			break;
+
+		case 4:
+			create_enemy = 99;
+			for (int i = 0; i < 30; ++i) {
+				if (enemy[i].life == 0) {
+					create_enemy = i;
+					break;
+				}
+			}
+			if (create_enemy != 99) {
+				enemy[create_enemy].x1 = uid(gen) % 1200;
+				if (enemy[create_enemy].x1 > 100 || enemy[create_enemy].x1 < 1100) {
+					enemy[create_enemy].y1 = uid(gen) % 2;
+					if (enemy[create_enemy].y1) {
+						enemy[create_enemy].y1 = 850;
+					}
+					else
+						enemy[create_enemy].y1 = 250;
+				}
+				else {
+					enemy[create_enemy].y1 = uid(gen) % 950;
+				}
+
+				enemy[create_enemy].x2 = enemy[create_enemy].x1 + 40;
+				enemy[create_enemy].y2 = enemy[create_enemy].y1 + 40;
+				enemy[create_enemy].speed = uid(gen) % 4 + 2;
+
+				enemy[create_enemy].life = 1;
+			}
+			break;
+
+		case 5:
+			for (int i = 0; i < 30; ++i) {
+				if (enemy[i].life == 1) {
+					if (enemy[i].x1 > box.x1) {
+						enemy[i].x1 -= enemy[i].speed;
+						enemy[i].x2 = enemy[i].x1 + 40;
+					}
+					else {
+						enemy[i].x1 += enemy[i].speed;
+						enemy[i].x2 = enemy[i].x1 + 40;
+					}
+					if (enemy[i].y1 > box.y1) {
+						enemy[i].y1 -= enemy[i].speed;
+						enemy[i].y2 = enemy[i].y1 + 40;
+					}
+					else {
+						enemy[i].y1 += enemy[i].speed;
+						enemy[i].y2 = enemy[i].y1 + 40;
+					}
+				}
+			}
+
+
+
+			for (int i = 0; i < 30; ++i) {
+				for (int j = 0; j < 15; ++j) {
+					for (int k = 0; k < 15; ++k) {
+						board[j][k].danger = 0;
+						if (enemy[i].x1 > board[j][k].x1 && enemy[i].x1 < board[j][k].x2 && enemy[i].y1 > board[j][k].y1 && enemy[i].y1 < board[j][k].y2 && enemy[i].life == 1) {
+							board[j][k].color = 0;
+							board[j][k].danger = 1;
+							if (j < 14)
+								board[j][k + 1].danger = 1;
+							if (k > 0)
+								board[j][k - 1].danger = 1;
+							if (j < 14)
+								board[j + 1][k].danger = 1;
+							if (j < 14 && k > 0)
+								board[k + 1][j - 1].danger = 1;
+							if (j < 14 && k < 14)
+								board[j + 1][k + 1].danger = 1;
+							if (j > 0)
+								board[j - 1][k].danger = 1;
+							if (j > 0 && k > 0)
+								board[j - 1][k - 1].danger = 1;
+							if (j > 0 && k < 14)
+								board[j - 1][k + 1].danger = 1;
+
+						}
+						if (enemy[i].x2 > board[j][k].x1 && enemy[i].x2 < board[j][k].x2 && enemy[i].y1 > board[j][k].y1 && enemy[i].y1 < board[j][k].y2 && enemy[i].life == 1)
+							board[j][k].color = 0;
+						if (enemy[i].x1 > board[j][k].x1 && enemy[i].x1 < board[j][k].x2 && enemy[i].y2 > board[j][k].y1 && enemy[i].y2 < board[j][k].y2 && enemy[i].life == 1)
+							board[j][k].color = 0;
+						if (enemy[i].x2 > board[j][k].x1 && enemy[i].x2 < board[j][k].x2 && enemy[i].y2 > board[j][k].y1 && enemy[i].y2 < board[j][k].y2 && enemy[i].life == 1)
+							board[j][k].color = 0;
+
+					}
+				}
+			}
+			break;
+		}
+
+		InvalidateRect(hWnd, NULL, FALSE);
+
+		break;
+	case WM_KEYDOWN:
+		if (wParam == VK_UP) {
+			up = 1;
+		}
+		
+		if (wParam == VK_DOWN) {
+			down = 1;
+		}
+
+		if (wParam == VK_LEFT) {
+			left = 1;
+		}
+
+		if (wParam == VK_RIGHT) {
+			right = 1;
+		}
+
+		InvalidateRect(hWnd, NULL, FALSE);
+		break;
+	case WM_KEYUP:
+		if (wParam == VK_UP) {
+			up = 0;
+		}
+
+		if (wParam == VK_DOWN) {
+			down = 0;
+		}
+
+		if (wParam == VK_LEFT) {
+			left = 0;
+		}
+
+		if (wParam == VK_RIGHT) {
+			right = 0;
+		}
+
+		InvalidateRect(hWnd, NULL, FALSE);
+		break;
+	case WM_PAINT:
+		hDC = BeginPaint(hWnd, &ps);
+		GetClientRect(hWnd, &rectview);
+
+		hBrush = CreateSolidBrush(RGB(255, 255, 255));
+		oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+		Rectangle(memdc, 0, 0, rectview.right, rectview.bottom);
+		DeleteObject(hBrush);
+
+
+		for (int i = 0; i < 15; ++i) {
+			for (int j = 0; j < 15; ++j) {
+				if (board[i][j].color == 0) {
+					hBrush = CreateSolidBrush(RGB(0, 0, 0));
+					oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+					Rectangle(memdc, board[i][j].x1, board[i][j].y1, board[i][j].x2, board[i][j].y2);
+					DeleteObject(hBrush);
+				}
+				else {
+					hBrush = CreateSolidBrush(RGB(255, 255, 255));
+					oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+					Rectangle(memdc, board[i][j].x1, board[i][j].y1, board[i][j].x2, board[i][j].y2);
+					DeleteObject(hBrush);
+				}/*
+				if (board[i][j].danger == 1) {
+					hBrush = CreateSolidBrush(RGB(0, 255, 0));
+					oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+					Rectangle(memdc, board[i][j].x1, board[i][j].y1, board[i][j].x2, board[i][j].y2);
+					DeleteObject(hBrush);
+				}*/
+			}
+		}
+
+		hBrush = CreateSolidBrush(RGB(0, 255, 255));
+		oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+		RoundRect(memdc, box.x1, box.y1, box.x2, box.y2, 15 , 15);
+		DeleteObject(hBrush);
+
+		for (int i = 0; i < 30; ++i) {
+			if (enemy[i].life == 1) {
+				hBrush = CreateSolidBrush(RGB(255, 100, 100));
+				oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+				RoundRect(memdc, enemy[i].x1, enemy[i].y1, enemy[i].x2, enemy[i].y2, 5, 5);
+				DeleteObject(hBrush);
+			}
+		}
+
+		for (int i = 0; i < 6; ++i) {
+			if (Ammo[i].option == 1) {
+				hBrush = CreateSolidBrush(RGB(50, 50, 50));
+				oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+				Ellipse(memdc, Ammo[i].x, Ammo[i].y, Ammo[i].x + 10, Ammo[i].y + 10);
+				DeleteObject(hBrush);
+			}
+			else if (Ammo[i].option == 2) {
+				hBrush = CreateSolidBrush(RGB(255, 50, 50));
+				oldBrush = (HBRUSH)SelectObject(memdc, hBrush);
+				Ellipse(memdc, Ammo[i].x, Ammo[i].y, Ammo[i].x + 10, Ammo[i].y + 10);
+				DeleteObject(hBrush);
+			}
+		}
+
+	    BitBlt(hDC, 0, 0, rectview.right,rectview.bottom, memdc, 0,0, SRCCOPY);
+
+		DeleteObject(hBrush);
+		EndPaint(hWnd, &ps);
+		break;
+
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		break;
+	}
+	return DefWindowProc(hWnd, uMsg, wParam, lParam); //--- 위의 세 메시지 외의 나머지 메시지는 OS로
+}
